@@ -22,9 +22,9 @@ include, but are not limited to:
      - Customer-specific key derivation
      - Domain authorization and allowlisting
 
-  4. Confidence-Weighted Identity Resolution
-     - Fingerprint-based cross-domain identity matching
-     - Canonical identity selection across domains
+  4. Confidence-Weighted Pseudonymous Linkage
+     - Non-PII signal-based cross-domain continuity
+     - Canonical identity selection across domains (pseudonymous only)
 
 IMPORTANT NOTICE: Cross-Domain Features
 

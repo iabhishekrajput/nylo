@@ -15,6 +15,19 @@ Google killed third-party cookies. Your cross-domain analytics broke. The indust
 
 **Nylo is a third option.** It tracks user behavior across your domains using pseudonymous identifiers that never resolve to personal information. No cookies, no fingerprinting, no PII. Individual-level resolution without knowing who anyone is.
 
+## What Nylo Is / Is Not
+
+| | |
+|---|---|
+| **Is** | Pseudonymous continuity across domains without login or PII |
+| **Is** | A zero-dependency client SDK (~12KB) with server-side event ingestion |
+| **Is** | Privacy-by-design: all 23 tracking features default to **off** |
+| **Is not** | Fingerprinting users (no canvas, font, WebGL, or device fingerprints) |
+| **Is not** | Storing IP addresses or resolving identity to a person |
+| **Is not** | A replacement for consent — it reduces the *need* for it |
+| **Works best when** | You control the collection server and verify domains via DNS TXT |
+| **Works best when** | You need cross-domain analytics without forcing user login |
+
 ## How It Works
 
 ```
@@ -146,10 +159,16 @@ nylo/
 │       ├── security.ts            # XSS prevention, origin validation
 │       └── dns-verification.ts    # DNS TXT record domain verification
 ├── examples/
+│   ├── demo.html                  # Interactive demo dashboard
+│   ├── demo-server.js             # Self-contained Express demo server
+│   ├── demo-server-sqlite.js      # Demo server with SQLite persistence
+│   ├── storage-sqlite.js          # SQLite reference storage adapter
 │   ├── basic.html                 # Minimal client-side integration
-│   └── server.ts                  # Complete Express server example
+│   └── server.ts                  # TypeScript Express server example
 ├── LICENSE                        # MIT License
-└── COMMERCIAL-LICENSE             # Commercial License for cross-domain features
+├── COMMERCIAL-LICENSE             # Commercial License for cross-domain features
+├── LICENSING.md                   # MIT vs commercial scope breakdown
+└── SECURITY.md                    # Security policy and vulnerability reporting
 ```
 
 ### Client-Side Modules
@@ -249,9 +268,13 @@ The token exchange uses URL parameters (primary) or `postMessage` (iframe fallba
 
 Requires Web Crypto API and localStorage. Falls back gracefully when storage layers are unavailable.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for our security policy and how to report vulnerabilities responsibly.
+
 ## License
 
-Nylo is dual-licensed:
+Nylo is dual-licensed. See [LICENSING.md](LICENSING.md) for the full breakdown of what's free vs commercial.
 
 **MIT License** -- Core tracking (page views, clicks, forms, events, batching, retry logic). Free for any use.
 

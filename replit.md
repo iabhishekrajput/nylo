@@ -24,10 +24,16 @@ nylo/
 ├── examples/
 │   ├── demo.html                  # Interactive demo dashboard
 │   ├── demo-server.js             # Self-contained Express demo server
+│   ├── storage-sqlite.js          # SQLite reference storage adapter
 │   ├── basic.html                 # Minimal client-side integration
 │   └── server.ts                  # TypeScript Express server example
-├── LICENSE                        # MIT License
-└── COMMERCIAL-LICENSE             # Commercial License for cross-domain features
+├── github/
+│   ├── RFC-0001.md                # Draft RFC for GitHub Discussions
+│   └── STARTER-ISSUES.md          # 10 starter issues ready to post on GitHub
+├── LICENSE                        # MIT License (clean, GitHub-detectable)
+├── COMMERCIAL-LICENSE             # Commercial License for cross-domain features
+├── LICENSING.md                   # Clear breakdown of MIT vs commercial scope
+└── SECURITY.md                    # Security policy and vulnerability reporting
 ```
 
 ## Key Components
@@ -48,21 +54,25 @@ nylo/
 ### Demo App (examples/)
 - `demo-server.js` — Self-contained Express server, no external dependencies beyond Express
 - `demo.html` — Interactive dashboard showcasing all SDK features
+- `storage-sqlite.js` — Reference SQLite storage adapter implementing NyloStorage interface
 - Runs on port 5000 by default, configurable via PORT env var
 
 ## Running the Demo
 ```bash
-npm install
-node examples/demo-server.js
+cd examples && npm install && npm start
 # Open http://localhost:5000/demo.html
 ```
 
 ## Licensing
 - Core tracking: MIT License (free)
 - Cross-domain features: Commercial License required for production
+- Full breakdown: See LICENSING.md
 - Contact: hello@waifind.com
 
 ## Recent Changes
+- 2026-02-17: Added LICENSING.md, SECURITY.md, SQLite storage adapter, RFC draft, starter issues
+- 2026-02-17: Fixed "fingerprinting" wording in COMMERCIAL-LICENSE
+- 2026-02-17: Added "What Nylo Is / Is Not" section to README
 - 2026-02-17: Created interactive demo app (demo-server.js + demo.html)
 - 2026-02-17: Fixed LICENSE file for GitHub detection (clean MIT format)
 - 2026-02-17: Updated licensing contact to hello@waifind.com
