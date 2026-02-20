@@ -1,6 +1,6 @@
 <p align="center">
   <strong>Nylo</strong><br>
-  Privacy-first cross-domain analytics. No cookies. No login. No PII.
+  Privacy-first cross-domain analytics. No third party cookies. No login. No PII.
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 
 Google killed third-party cookies. Your cross-domain analytics broke. The industry says you have two options: force users to log in (UID 2.0, LiveRamp) or lose individual-level data (Google Topics API).
 
-**Nylo is a third option.** It tracks user behavior across your domains using pseudonymous identifiers that never resolve to personal information. No cookies, no fingerprinting, no PII. Individual-level resolution without knowing who anyone is.
+**Nylo is a third option.** It tracks user behavior across your domains using pseudonymous identifiers that never resolve to personal information. No third party cookies, no fingerprinting, no PII. Individual-level resolution without knowing who anyone is.
 
 ## What Nylo Is / Is Not
 
