@@ -102,7 +102,7 @@
     },
 
     validateWaiTag: function(waiTag) {
-      return /^wai_[0-9a-zA-Z]{10,}_[a-zA-Z0-9]{8,}$/.test(waiTag);
+      return /^wai_[0-9a-zA-Z]{10,}_[a-zA-Z0-9]{1,}$/.test(waiTag);
     },
 
     generateCSRFToken: function() {
@@ -111,23 +111,20 @@
     },
 
     generateSecureId: function(domain) {
-      var timestamp = Date.now();
-      var randomBytes = new Uint8Array(16);
-
-      if (window.crypto && window.crypto.getRandomValues) {
-        window.crypto.getRandomValues(randomBytes);
-      } else {
-        for (var i = 0; i < randomBytes.length; i++) {
-          randomBytes[i] = Math.floor(Math.random() * 256);
-        }
+      if (!window.crypto || !window.crypto.getRandomValues) {
+        Logger.error('crypto.getRandomValues not available — cannot generate secure session ID');
+        return null;
       }
+
+      var randomBytes = new Uint8Array(16);
+      window.crypto.getRandomValues(randomBytes);
 
       var randomHex = Array.from(randomBytes, function(byte) {
         return byte.toString(16).padStart(2, '0');
       }).join('');
 
       var domainHash = this.hashString(domain || 'default').substring(0, 8);
-      return timestamp.toString(36) + '-' + randomHex + '-' + domainHash;
+      return randomHex + '-' + domainHash;
     },
 
     /**
@@ -139,23 +136,20 @@
      * system covered by COMMERCIAL-LICENSE.
      */
     generateWaiTag: function(domain) {
-      var timestamp = Date.now();
-      var randomBytes = new Uint8Array(8);
-
-      if (window.crypto && window.crypto.getRandomValues) {
-        window.crypto.getRandomValues(randomBytes);
-      } else {
-        for (var i = 0; i < randomBytes.length; i++) {
-          randomBytes[i] = Math.floor(Math.random() * 256);
-        }
+      if (!window.crypto || !window.crypto.getRandomValues) {
+        Logger.error('crypto.getRandomValues not available — cannot generate secure WaiTag');
+        return null;
       }
 
+      var randomBytes = new Uint8Array(16);
+      window.crypto.getRandomValues(randomBytes);
+
       var randomId = Array.from(randomBytes, function(byte) {
-        return byte.toString(36);
-      }).join('').substring(0, 11);
+        return byte.toString(36).padStart(2, '0');
+      }).join('').substring(0, 19);
 
       var domainHash = this.hashString(domain || 'default').substring(0, 8);
-      return 'wai_' + timestamp.toString(36) + '_' + randomId + domainHash;
+      return 'wai_' + randomId + '_' + domainHash;
     },
 
     hashString: function(str) {
@@ -271,24 +265,47 @@
   var CrossDomainIdentity = {
     checkForCrossDomainToken: function() {
       var crossDomainToken = null;
+      var tokenSource = null;
       var hash = window.location.hash;
       if (hash) {
         var hashParams = new URLSearchParams(hash.substring(1));
         crossDomainToken = hashParams.get('nylo_token') || hashParams.get('wai_token');
+        if (crossDomainToken) tokenSource = 'hash';
       }
       if (!crossDomainToken) {
         var urlParams = new URLSearchParams(window.location.search);
         crossDomainToken = urlParams.get('nylo_token') || urlParams.get('wai_token');
+        if (crossDomainToken) tokenSource = 'search';
       }
 
       if (crossDomainToken) {
-        Logger.info('Cross-domain token detected');
+        Logger.info('Cross-domain token detected via ' + tokenSource);
         state.crossDomainData.tokenReceived = true;
         try {
           state.crossDomainData.referringDomain = document.referrer ? new URL(document.referrer).hostname : null;
         } catch (e) {
           state.crossDomainData.referringDomain = null;
         }
+
+        try {
+          if (tokenSource === 'hash') {
+            var cleanHash = hash.substring(1).split('&').filter(function(p) {
+              return !p.startsWith('nylo_token=') && !p.startsWith('wai_token=');
+            }).join('&');
+            var newHash = cleanHash ? '#' + cleanHash : '';
+            history.replaceState(null, '', window.location.pathname + window.location.search + newHash);
+          } else {
+            var cleanParams = new URLSearchParams(window.location.search);
+            cleanParams.delete('nylo_token');
+            cleanParams.delete('wai_token');
+            var newSearch = cleanParams.toString() ? '?' + cleanParams.toString() : '';
+            history.replaceState(null, '', window.location.pathname + newSearch + window.location.hash);
+          }
+          Logger.debug('Cross-domain token cleaned from URL');
+        } catch (e) {
+          Logger.debug('Could not clean token from URL');
+        }
+
         return this.verifyAndProcessToken(crossDomainToken);
       }
 
@@ -353,6 +370,13 @@
       state.sessionId = Security.generateSecureId(domain);
       state.waiTag = Security.generateWaiTag(domain);
 
+      if (!state.sessionId || !state.waiTag) {
+        Logger.error('Failed to generate secure identity — crypto API unavailable');
+        state.sessionId = state.sessionId || 'anon_' + Date.now().toString(36);
+        state.waiTag = null;
+        return;
+      }
+
       var identityData = {
         sessionId: state.sessionId,
         waiTag: state.waiTag,
@@ -371,7 +395,11 @@
     storeIdentityData: function(identityData) {
       try {
         var cookieData = btoa(JSON.stringify(identityData));
-        document.cookie = 'nylo_wai=' + cookieData + '; path=/; SameSite=Lax; max-age=86400';
+        var cookieFlags = 'path=/; SameSite=Strict; max-age=86400';
+        if (window.location.protocol === 'https:') {
+          cookieFlags += '; Secure';
+        }
+        document.cookie = 'nylo_wai=' + cookieData + '; ' + cookieFlags;
       } catch (e) {
         Logger.debug('Cookie storage failed');
       }
@@ -513,42 +541,40 @@
   }
 
   function deriveKey(custId) {
-    var encoder = new TextEncoder();
-    var data = encoder.encode(custId + 'nylo_key_salt');
-
-    if (window.crypto && window.crypto.subtle) {
-      return window.crypto.subtle.digest('SHA-256', data)
-        .then(function(hashBuffer) { return new Uint8Array(hashBuffer); });
+    if (!window.crypto || !window.crypto.subtle) {
+      Logger.error('Web Crypto API not available — encrypted config cannot be decrypted');
+      return Promise.reject(new Error('Web Crypto API required for encrypted configuration'));
     }
 
-    return Promise.resolve(new Uint8Array(32).fill(0));
+    var encoder = new TextEncoder();
+    var data = encoder.encode('nylo_v1:' + custId + ':' + window.location.hostname);
+
+    return window.crypto.subtle.digest('SHA-256', data)
+      .then(function(hashBuffer) { return new Uint8Array(hashBuffer); });
   }
 
   function decryptConfig(encConfig, key) {
-    if (window.crypto && window.crypto.subtle) {
-      try {
-        var parts = encConfig.split('.');
-        if (parts.length !== 2) throw new Error('Invalid format');
-
-        var iv = new Uint8Array(atob(parts[0]).split('').map(function(c) { return c.charCodeAt(0); }));
-        var encrypted = new Uint8Array(atob(parts[1]).split('').map(function(c) { return c.charCodeAt(0); }));
-
-        return window.crypto.subtle.importKey('raw', key, { name: 'AES-GCM' }, false, ['decrypt'])
-          .then(function(cryptoKey) {
-            return window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, cryptoKey, encrypted);
-          })
-          .then(function(decrypted) {
-            return new TextDecoder().decode(decrypted);
-          });
-      } catch (error) {
-        // Fall through to base64 fallback
-      }
+    if (!window.crypto || !window.crypto.subtle) {
+      Logger.error('Web Crypto API not available — cannot decrypt configuration securely');
+      return Promise.reject(new Error('Web Crypto API required for decryption'));
     }
 
     try {
-      return Promise.resolve(atob(encConfig));
+      var parts = encConfig.split('.');
+      if (parts.length !== 2) throw new Error('Invalid format');
+
+      var iv = new Uint8Array(atob(parts[0]).split('').map(function(c) { return c.charCodeAt(0); }));
+      var encrypted = new Uint8Array(atob(parts[1]).split('').map(function(c) { return c.charCodeAt(0); }));
+
+      return window.crypto.subtle.importKey('raw', key, { name: 'AES-GCM' }, false, ['decrypt'])
+        .then(function(cryptoKey) {
+          return window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, cryptoKey, encrypted);
+        })
+        .then(function(decrypted) {
+          return new TextDecoder().decode(decrypted);
+        });
     } catch (error) {
-      return Promise.reject(new Error('All decryption methods failed'));
+      return Promise.reject(new Error('Decryption failed: invalid encrypted config format'));
     }
   }
 

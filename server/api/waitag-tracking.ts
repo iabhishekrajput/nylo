@@ -9,6 +9,7 @@
  */
 
 import type { Request, Response } from "express";
+import crypto from 'crypto';
 import { generateWaiTagId, generateSessionId } from '../utils/secure-id';
 import {
   validateWaiTagId,
@@ -19,12 +20,55 @@ import {
   validateTrackingEvent
 } from '../utils/input-validation';
 
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function verifyTokenSignature(token: string, secret: string): { valid: boolean; payload: any } {
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+    const parsed = JSON.parse(decoded);
+
+    if (!parsed.sig || !parsed.waiTag || !parsed.sessionId) {
+      return { valid: false, payload: null };
+    }
+
+    if (parsed.exp && Date.now() > parsed.exp) {
+      return { valid: false, payload: null };
+    }
+
+    const dataToSign = JSON.stringify({
+      waiTag: parsed.waiTag,
+      sessionId: parsed.sessionId,
+      userId: parsed.userId || null,
+      domain: parsed.domain || '',
+      exp: parsed.exp
+    });
+    const expectedSig = crypto.createHmac('sha256', secret).update(dataToSign).digest('hex');
+
+    if (!crypto.timingSafeEqual(Buffer.from(parsed.sig, 'hex'), Buffer.from(expectedSig, 'hex'))) {
+      return { valid: false, payload: null };
+    }
+
+    return { valid: true, payload: parsed };
+  } catch {
+    return { valid: false, payload: null };
+  }
+}
+
+export interface TokenReplayStore {
+  isTokenUsed(tokenHash: string): Promise<boolean>;
+  markTokenUsed(tokenHash: string, expiresInMs?: number): Promise<void>;
+}
+
 export interface WaiTagStorage {
   getCustomer(id: number): Promise<any>;
   getCustomerByApiKey(apiKey: string): Promise<any>;
   createInteraction(data: any): Promise<any>;
   parseDomain(domain: string): { mainDomain: string; subdomain: string | null };
   isDomainVerified?(domain: string, customerId: number): Promise<boolean>;
+  getVerifiedDomains?(customerId: number): Promise<string[]>;
+  tokenReplayStore?: TokenReplayStore;
 }
 
 export function registerWaiTagTrackingRoutes(app: any, storage: WaiTagStorage) {
@@ -198,10 +242,55 @@ export function registerWaiTagTrackingRoutes(app: any, storage: WaiTagStorage) {
         }
       }
 
+      if (storage.tokenReplayStore) {
+        const tokenHash = hashToken(token);
+        const alreadyUsed = await storage.tokenReplayStore.isTokenUsed(tokenHash);
+        if (alreadyUsed) {
+          return res.status(403).json({
+            success: false,
+            message: 'Token has already been used (replay detected)'
+          });
+        }
+        await storage.tokenReplayStore.markTokenUsed(tokenHash, 5 * 60 * 1000);
+      }
+
+      const tokenSecret = process.env.NYLO_TOKEN_SECRET;
+
       try {
         const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
 
+        if (tokenSecret) {
+          const { valid, payload } = verifyTokenSignature(token, tokenSecret);
+          if (!valid) {
+            return res.json({
+              success: false,
+              message: 'Invalid or expired cross-domain token'
+            });
+          }
+
+          return res.json({
+            success: true,
+            identity: {
+              waiTag: payload.waiTag,
+              sessionId: payload.sessionId,
+              userId: payload.userId || null
+            },
+            verifiedAt: new Date().toISOString()
+          });
+        }
+
+        if (!tokenSecret && decoded.sig) {
+          return res.json({
+            success: false,
+            message: 'NYLO_TOKEN_SECRET not configured — cannot verify signed tokens'
+          });
+        }
+
         if (decoded.waiTag && decoded.sessionId) {
+          if (decoded.exp && Date.now() > decoded.exp) {
+            return res.json({ success: false, message: 'Token expired' });
+          }
+
           return res.json({
             success: true,
             identity: {
@@ -213,7 +302,6 @@ export function registerWaiTagTrackingRoutes(app: any, storage: WaiTagStorage) {
           });
         }
       } catch {
-        // Token format not recognized
       }
 
       return res.json({

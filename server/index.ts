@@ -14,7 +14,24 @@ import { registerWaiTagTrackingRoutes } from './api/waitag-tracking';
 import { registerTrackingSyncRoutes } from './api/tracking-sync';
 import { registerDnsVerificationRoutes } from './api/dns-verify';
 
-export function setupNyloRoutes(app: express.Express, storage: any) {
+export interface NyloServerOptions {
+  allowedOrigins?: string[];
+  enforceHttps?: boolean;
+}
+
+export function setupNyloRoutes(app: express.Express, storage: any, options?: NyloServerOptions) {
+  const allowedOrigins = options?.allowedOrigins || [];
+  const enforceHttps = options?.enforceHttps ?? (process.env.NODE_ENV === 'production');
+
+  if (enforceHttps) {
+    app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (!req.secure && req.headers['x-forwarded-proto'] !== 'https') {
+        return res.redirect(301, 'https://' + req.headers.host + req.url);
+      }
+      next();
+    });
+  }
+
   app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
     res.header('X-Content-Type-Options', 'nosniff');
     res.header('X-Frame-Options', 'SAMEORIGIN');
@@ -28,15 +45,28 @@ export function setupNyloRoutes(app: express.Express, storage: any) {
     next();
   });
 
-  app.use((req, res, next) => {
+  app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const origin = req.headers.origin;
     if (origin) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Headers',
-        'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, X-Customer-ID, X-Session-ID, X-WaiTag, X-Batch-Size, X-SDK-Version');
-      res.header('Access-Control-Expose-Headers',
-        'X-WaiTag, X-Cross-Domain-WaiTag, X-Session-ID');
+      if (allowedOrigins.length === 0) {
+        console.warn('[Nylo] WARNING: No allowedOrigins configured — CORS is open to all origins. Set allowedOrigins in production.');
+      }
+
+      const isAllowed = allowedOrigins.length === 0 || allowedOrigins.some(allowed => {
+        if (allowed.startsWith('*.')) {
+          return origin.endsWith(allowed.substring(1)) || origin === 'https://' + allowed.substring(2) || origin === 'http://' + allowed.substring(2);
+        }
+        return origin === 'https://' + allowed || origin === 'http://' + allowed || origin === allowed;
+      });
+
+      if (isAllowed) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Headers',
+          'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, X-Customer-ID, X-Session-ID, X-WaiTag, X-Batch-Size, X-SDK-Version');
+        res.header('Access-Control-Expose-Headers',
+          'X-WaiTag, X-Cross-Domain-WaiTag, X-Session-ID');
+      }
     }
     if (req.method === 'OPTIONS') return res.status(200).send();
     next();
@@ -71,7 +101,7 @@ export function setupNyloRoutes(app: express.Express, storage: any) {
 }
 
 export { registerTrackingRoutes } from './api/tracking';
-export { registerWaiTagTrackingRoutes } from './api/waitag-tracking';
+export { registerWaiTagTrackingRoutes, TokenReplayStore } from './api/waitag-tracking';
 export { registerTrackingSyncRoutes } from './api/tracking-sync';
 export { registerDnsVerificationRoutes } from './api/dns-verify';
 export { generateWaiTagId, generateSessionId, generateApiKey } from './utils/secure-id';

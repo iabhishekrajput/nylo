@@ -29,7 +29,11 @@ nylo/
 │   └── server.ts                  # TypeScript Express server example
 ├── github/
 │   ├── RFC-0001.md                # Draft RFC for GitHub Discussions
-│   └── STARTER-ISSUES.md          # 10 starter issues ready to post on GitHub
+│   ├── STARTER-ISSUES.md          # 10 starter issues ready to post on GitHub
+│   ├── ADOBE-PITCH.md             # Adobe pitch document
+│   ├── WTX-1-SPEC.md              # WTX-1 specification
+│   ├── HN-POST.md                 # Hacker News post draft
+│   ├── draft-surampudi-wtx1-00.*  # IETF Internet-Draft (HTML, TXT, XML)
 ├── LICENSE                        # MIT License (clean, GitHub-detectable)
 ├── COMMERCIAL-LICENSE             # Commercial License for cross-domain features
 ├── LICENSING.md                   # Clear breakdown of MIT vs commercial scope
@@ -55,6 +59,9 @@ nylo/
 - `demo-server.js` — Self-contained Express server, no external dependencies beyond Express
 - `demo.html` — Interactive dashboard showcasing all SDK features
 - `storage-sqlite.js` — Reference SQLite storage adapter implementing NyloStorage interface
+- `demo-server-postgres.js` — PostgreSQL-backed demo server variant
+- `demo-server-sqlite.js` — SQLite-backed demo server variant
+- `storage-postgres.js` — PostgreSQL storage adapter
 - Runs on port 5000 by default, configurable via PORT env var
 
 ## Running the Demo
@@ -79,4 +86,6 @@ cd examples && npm install && npm start
 - 2026-02-17: Created interactive demo app (demo-server.js + demo.html)
 - 2026-02-17: Fixed LICENSE file for GitHub detection (clean MIT format)
 - 2026-02-17: Updated licensing contact to hello@waifind.com
+- 2026-02-22: Integrated backup files: added github docs (ADOBE-PITCH, WTX-1-SPEC, HN-POST, IETF drafts), PostgreSQL/SQLite server variants, security enhancements (token verification, replay protection, CORS origin allowlists)
+- 2026-02-22: Added replit.md to .gitignore, removed restrictive X-Frame-Options and CSP headers for Replit compatibility
 - 2026-02-17: Added .replit to .gitignore

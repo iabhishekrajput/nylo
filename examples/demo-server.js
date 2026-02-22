@@ -1,33 +1,60 @@
 const express = require('express');
+const crypto = require('crypto');
 const path = require('path');
 
 const app = express();
 app.use(express.json());
 
+const ALLOWED_ORIGINS = (process.env.NYLO_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+const NYLO_TOKEN_SECRET = process.env.NYLO_TOKEN_SECRET || 'demo-secret-change-in-production';
+const ENFORCE_HTTPS = process.env.NODE_ENV === 'production';
+
+const usedTokens = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [hash, expiry] of usedTokens) {
+    if (now > expiry) usedTokens.delete(hash);
+  }
+}, 60 * 1000);
+
+if (ENFORCE_HTTPS) {
+  app.use((req, res, next) => {
+    if (!req.secure && req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, 'https://' + req.headers.host + req.url);
+    }
+    next();
+  });
+}
+
 app.use((req, res, next) => {
   res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.header('Pragma', 'no-cache');
   res.header('X-Content-Type-Options', 'nosniff');
-  res.header('X-Frame-Options', 'SAMEORIGIN');
   res.header('X-XSS-Protection', '1; mode=block');
   res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'");
-  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
-    res.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
   next();
 });
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, X-Customer-ID, X-Session-ID, X-WaiTag, X-Batch-Size, X-SDK-Version');
-    res.header('Access-Control-Expose-Headers',
-      'X-WaiTag, X-Cross-Domain-WaiTag, X-Session-ID');
+    const isAllowed = ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.some(allowed => {
+      allowed = allowed.trim();
+      if (allowed.startsWith('*.')) {
+        return origin.endsWith(allowed.substring(1)) || origin === 'https://' + allowed.substring(2) || origin === 'http://' + allowed.substring(2);
+      }
+      return origin === 'https://' + allowed || origin === 'http://' + allowed || origin === allowed;
+    });
+
+    if (isAllowed) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Headers',
+        'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, X-Customer-ID, X-Session-ID, X-WaiTag, X-Batch-Size, X-SDK-Version');
+      res.header('Access-Control-Expose-Headers',
+        'X-WaiTag, X-Cross-Domain-WaiTag, X-Session-ID');
+    }
   }
   if (req.method === 'OPTIONS') return res.status(200).send();
   next();
@@ -136,16 +163,63 @@ app.post('/api/tracking/register-waitag', (req, res) => {
 
 app.post('/api/tracking/verify-cross-domain-token', (req, res) => {
   const { token, domain, customerId } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ success: false, message: 'Token is required' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  if (usedTokens.has(tokenHash)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Token has already been used (replay detected)'
+    });
+  }
+  usedTokens.set(tokenHash, Date.now() + 5 * 60 * 1000);
+
+  try {
+    const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
+
+    if (decoded.sig && NYLO_TOKEN_SECRET) {
+      const dataToSign = JSON.stringify({
+        waiTag: decoded.waiTag,
+        sessionId: decoded.sessionId,
+        userId: decoded.userId || null,
+        domain: decoded.domain || '',
+        exp: decoded.exp
+      });
+      const expectedSig = crypto.createHmac('sha256', NYLO_TOKEN_SECRET).update(dataToSign).digest('hex');
+
+      if (decoded.sig.length !== expectedSig.length ||
+          !crypto.timingSafeEqual(Buffer.from(decoded.sig, 'hex'), Buffer.from(expectedSig, 'hex'))) {
+        return res.json({ success: false, message: 'Invalid token signature' });
+      }
+
+      if (decoded.exp && Date.now() > decoded.exp) {
+        return res.json({ success: false, message: 'Token expired' });
+      }
+    }
+
+    if (decoded.waiTag && decoded.sessionId) {
+      return res.json({
+        success: true,
+        verified: true,
+        identity: {
+          sessionId: decoded.sessionId,
+          waiTag: decoded.waiTag,
+          userId: decoded.userId || null
+        },
+        domain,
+        verifiedAt: new Date().toISOString(),
+        message: 'Token verified'
+      });
+    }
+  } catch (e) {
+  }
+
   res.json({
-    success: true,
-    verified: true,
-    identity: {
-      sessionId: 'demo-session-' + Date.now().toString(36),
-      waiTag: 'wai_' + Date.now().toString(36) + '_demo',
-      userId: null
-    },
-    domain,
-    message: 'Token verified (demo mode)'
+    success: false,
+    message: 'Invalid or expired cross-domain token'
   });
 });
 

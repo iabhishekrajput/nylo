@@ -7,7 +7,7 @@
 
 const DOMAIN_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?(\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])*$/;
 const API_KEY_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
-const WAITAG_REGEX = /^(wai_[0-9a-zA-Z]+_[a-zA-Z0-9]+|[a-z]+-\d+-[a-f0-9]+)$/;
+const WAITAG_REGEX = /^(wai_[0-9a-zA-Z]{10,}_[a-zA-Z0-9]{1,}|[a-z]+-\d+-[a-f0-9]+)$/;
 const URL_REGEX = /^https?:\/\/.{1,2048}$/;
 
 const VALID_EVENT_TYPES = [

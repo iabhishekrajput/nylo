@@ -7,6 +7,11 @@
 
 import type { Request, Response } from "express";
 import crypto from "crypto";
+import {
+  validateDomain,
+  validateEventType,
+  sanitizeFormData
+} from '../utils/input-validation';
 
 const dedupCache = new Map<string, number>();
 const DEDUP_WINDOW_MS = parseInt(process.env.TRACKING_DEDUP_WINDOW_SECONDS || '60', 10) * 1000;
@@ -26,9 +31,49 @@ export interface TrackingStorage {
   createInteraction(data: any): Promise<any>;
 }
 
+function validateAndSanitizeEvent(eventItem: any): any | null {
+  const sanitized = sanitizeFormData(eventItem);
+
+  let eventType = sanitized.eventType || sanitized.interactionType;
+  if (!eventType || typeof eventType !== 'string') return null;
+
+  try {
+    eventType = validateEventType(eventType);
+  } catch {
+    eventType = 'custom';
+  }
+
+  let domain = sanitized.domain;
+  if (!domain || typeof domain !== 'string') return null;
+
+  try {
+    domain = validateDomain(domain);
+  } catch {
+    return null;
+  }
+
+  const sessionId = sanitized.sessionId;
+  if (!sessionId || typeof sessionId !== 'string') return null;
+
+  return {
+    eventType,
+    domain,
+    sessionId,
+    url: sanitized.url || sanitized.pageUrl || '',
+    userId: sanitized.userId || null,
+    metadata: sanitized.metadata || '',
+    timestamp: sanitized.timestamp,
+    rest: Object.keys(sanitized).reduce((acc: any, key: string) => {
+      if (!['eventType', 'interactionType', 'domain', 'sessionId', 'url', 'pageUrl', 'userId', 'metadata', 'timestamp'].includes(key)) {
+        acc[key] = sanitized[key];
+      }
+      return acc;
+    }, {})
+  };
+}
+
 export function registerTrackingRoutes(app: any, storage: TrackingStorage) {
   app.options("/api/track", (req: Request, res: Response) => {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, X-Customer-ID, X-Session-ID, X-WaiTag, X-Batch-Size, X-SDK-Version');
     res.header('Access-Control-Allow-Credentials', 'true');
@@ -44,26 +89,17 @@ export function registerTrackingRoutes(app: any, storage: TrackingStorage) {
       }
 
       let processedCount = 0;
+      let skippedCount = 0;
 
       for (const eventItem of events) {
-        let {
-          eventType,
-          domain,
-          sessionId,
-          timestamp,
-          url,
-          pageUrl,
-          userId,
-          metadata,
-          ...eventData
-        } = eventItem;
+        const validated = validateAndSanitizeEvent(eventItem);
+        if (!validated) {
+          skippedCount++;
+          continue;
+        }
 
-        if (!url && pageUrl) url = pageUrl;
-
-        if (!sessionId || !eventType || !domain) continue;
-
-        const eventTimestampStr = timestamp ? String(timestamp) : '';
-        const dedupString = `${sessionId}:${eventType}:${eventTimestampStr}`;
+        const eventTimestampStr = validated.timestamp ? String(validated.timestamp) : '';
+        const dedupString = `${validated.sessionId}:${validated.eventType}:${eventTimestampStr}`;
         const dedupKey = crypto.createHash('sha256').update(dedupString).digest('hex');
 
         const now = Date.now();
@@ -78,29 +114,30 @@ export function registerTrackingRoutes(app: any, storage: TrackingStorage) {
 
         try {
           await storage.createInteraction({
-            sessionId,
-            userId: userId || null,
+            sessionId: validated.sessionId,
+            userId: validated.userId,
             timestamp: new Date(),
-            pageUrl: url || pageUrl || '',
-            domain,
-            interactionType: eventType,
-            content: metadata || '',
-            mainDomain: domain.split('.').length > 2 ? domain.split('.').slice(1).join('.') : domain,
-            subdomain: domain.split('.').length > 2 ? domain.split('.')[0] : null,
+            pageUrl: validated.url,
+            domain: validated.domain,
+            interactionType: validated.eventType,
+            content: validated.metadata,
+            mainDomain: validated.domain.split('.').length > 2 ? validated.domain.split('.').slice(1).join('.') : validated.domain,
+            subdomain: validated.domain.split('.').length > 2 ? validated.domain.split('.')[0] : null,
             customerId: req.headers['x-customer-id'],
-            featureName: eventType,
+            featureName: validated.eventType,
             featureCategory: 'tracking',
-            context: { metadata: metadata || '', ...eventData }
+            context: { metadata: validated.metadata, ...validated.rest }
           });
           processedCount++;
         } catch (error) {
-          console.error('Failed to store event:', eventType);
+          console.error('Failed to store event:', validated.eventType);
         }
       }
 
       res.json({
         success: true,
         eventsProcessed: processedCount,
+        eventsSkipped: skippedCount,
         totalEvents: events.length
       });
 

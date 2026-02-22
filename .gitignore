@@ -15,4 +15,9 @@ coverage/
 *.tgz
 .nyc_output/
 .replit
-github
+replit.md
+.local/
+.config/
+.upm/
+.cache/
+attached_assets/
